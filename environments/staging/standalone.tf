@@ -4,7 +4,7 @@
 
 terraform {
   required_version = ">= 1.7.0"
-  
+
   required_providers {
     scaleway = {
       source  = "scaleway/scaleway"
@@ -84,13 +84,66 @@ write_files:
     owner: jlam:jlam
     permissions: '0600'
 
+  - path: /home/jlam/docker-compose.yml
+    content: |
+      # JLAM STAGING INFRASTRUCTURE
+      services:
+        traefik:
+          image: traefik:v3.0
+          container_name: jlam-traefik
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+            - "8080:8080"
+          command:
+            - "--api=true"
+            - "--api.dashboard=true"
+            - "--api.insecure=true"
+            - "--providers.docker=true"
+            - "--providers.docker.exposedbydefault=false"
+            - "--entrypoints.web.address=:80"
+            - "--entrypoints.websecure.address=:443"
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+          networks:
+            - jlam-network
+
+        nginx:
+          image: nginx:alpine
+          container_name: jlam-web
+          restart: unless-stopped
+          volumes:
+            - ./nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./html:/usr/share/nginx/html:ro
+          labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.nginx.rule=Host(\`staging.jlam.nl\`) || PathPrefix(\`/\`)"
+            - "traefik.http.routers.nginx.entrypoints=web"
+            - "traefik.http.services.nginx.loadbalancer.server.port=80"
+          networks:
+            - jlam-network
+          healthcheck:
+            test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+
+      networks:
+        jlam-network:
+          driver: bridge
+    owner: jlam:jlam
+    permissions: '0644'
+
 runcmd:
   - systemctl enable docker
   - systemctl start docker
   - usermod -aG docker jlam
   - curl -L "https://github.com/docker/compose/releases/download/2.20.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
   - chmod +x /usr/local/bin/docker-compose
-  - echo "✅ Staging server setup complete" > /var/log/staging-setup.log
+  - chown -R jlam:jlam /home/jlam
+  - cd /home/jlam && docker-compose up -d
+  - echo "✅ JLAM Staging server and services started successfully" > /var/log/staging-setup.log
 
 users:
   - name: jlam
@@ -98,7 +151,7 @@ users:
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
-      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... # SSH key will be injected
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDYBeN5tnKTxfTnU9Qr5xPOgdnthDE3sS/NpLx3LNu9DztEHcp9bZ74R/eKurQrV2Gn4g5/af6QAoDGrYV54APDqx3lMN6FqvpwA2ihRh+RgqERunUfMIypZciEWxLV4mvGARO79KvqMhBpU3NxbYoc9jUX9ZXWnbJTBcOaMIBMGQA6LLEEYomghP6vaXTI4h2Jmm/gtuMn5wcGru9g1hrXItflTzXAXYCl64VOmWJAPZhl8OJichv2gN5+sOVeXPbkor87Uvhk1t+hGKUS7lZr6kuKRGj7O7vYZtVBlFjl1NxJm20ML4snYefY9qxBqCEvZjQVnWxv89a3n5UOKhH6OPYRen5xvOLq8tvMc1INugVq4i9OHn9B7vELuBNHBSo51Z1hwOBJrBoMLT9K5xdYmr2hCJpdrAXnBuqoa1mjDVXhyHiRAcfTylfsg8U/uvMSYecsVtWfLO8OudhlklXYNa5tJR6jkQ2o7LJ2PssxETkHUtKd4WKOAxXYEnplWpEw4ydg/1ngNfW8L7JbTsiac2T53AFJ9RO6qmaZvmL62JmNV1NLz0c8vJ5/epEAoOakBYzxd8tNxiURILfyPPF6YLWWVFbzb1PrJ7qtcRaYqTTWbm3Rn1qcMxfC3FD73tEaf1jlYr5SgYne5Dd2uEFvX0pC4jg977iDX0u07Uh8FQ==
 
 final_message: "JLAM Staging server is ready! Time: $TIMESTAMP"
 EOT
@@ -144,7 +197,7 @@ variable "secret_key_base" {
 
 # ===== EXISTING IP DATA SOURCE =====
 data "scaleway_instance_ip" "existing_ip" {
-  address = "51.158.190.109"  # Use existing production IP
+  address = "51.158.190.109" # Use existing production IP
 }
 
 # ===== SECURITY GROUP =====
@@ -208,6 +261,11 @@ resource "scaleway_instance_server" "jlam_staging" {
   security_group_id = scaleway_instance_security_group.jlam_staging.id
 
   enable_dynamic_ip = false
+  
+  # CRITICAL FIX: Proper disk size (80GB instead of 10GB)
+  root_volume {
+    size_in_gb = 80
+  }
 
   # Cloud-init configuration
   user_data = {
@@ -248,10 +306,10 @@ output "staging_urls" {
 output "deployment_summary" {
   description = "Staging deployment summary"
   value = {
-    environment      = "staging"
-    server_ip        = data.scaleway_instance_ip.existing_ip.address
-    deployment_time  = local.deployment_timestamp
-    purpose          = "Testing clean configuration on existing server"
-    next_step        = "Verify deployment and test infrastructure patterns"
+    environment     = "staging"
+    server_ip       = data.scaleway_instance_ip.existing_ip.address
+    deployment_time = local.deployment_timestamp
+    purpose         = "Testing clean configuration on existing server"
+    next_step       = "Verify deployment and test infrastructure patterns"
   }
 }
