@@ -10,9 +10,9 @@ services:
     container_name: jlam-traefik
     restart: unless-stopped
     ports:
-      - "8082:80"   # Local port 8082 (avoiding conflicts)
-      - "8443:443"  # Local port 8443 for SSL
-      - "9080:8080" # Dashboard on 9080
+      - "80:80"     # HTTP port
+      - "443:443"   # HTTPS port 
+      - "8080:8080" # Dashboard port
     command:
       - "--api=true"
       - "--api.dashboard=true"
@@ -100,11 +100,11 @@ services:
     labels:
       - "traefik.enable=true"
       # ODIN BLESSED: HTTP router with security headers
-      - "traefik.http.routers.web.rule=Host(`localhost`) || Host(`jlam.local`)"
+      - "traefik.http.routers.web.rule=Host(`jlam.nl`) || Host(`51.158.190.109`)"
       - "traefik.http.routers.web.entrypoints=web"
       - "traefik.http.routers.web.middlewares=security-headers@file,rate-limit@file"
       # ODIN BLESSED: HTTPS router with enhanced security  
-      - "traefik.http.routers.web-secure.rule=Host(`localhost`) || Host(`jlam.local`)"  
+      - "traefik.http.routers.web-secure.rule=Host(`jlam.nl`) || Host(`51.158.190.109`)"  
       - "traefik.http.routers.web-secure.entrypoints=websecure"
       - "traefik.http.routers.web-secure.tls=true"
       - "traefik.http.routers.web-secure.middlewares=security-headers@file,rate-limit@file"
@@ -123,6 +123,145 @@ services:
       - "jlam.scaling.min=1"
       - "jlam.scaling.max=3"
       - "odin.pattern=enterprise-frontend"
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.12.1
+    container_name: jlam-authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_AVATARS: "initials"
+      # Database Configuration
+      AUTHENTIK_POSTGRESQL__HOST: 51.158.128.5
+      AUTHENTIK_POSTGRESQL__PORT: 5457
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik_app
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+      # Redis Configuration (using internal Redis)
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PORT: 6379
+    volumes:
+      - authentik_media:/media
+      - authentik_custom_templates:/templates
+    networks:
+      - jlam-network
+    depends_on:
+      - authentik-redis
+    healthcheck:
+      test: ["CMD-SHELL", "ak healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      # HTTP router
+      - "traefik.http.routers.authentik.rule=Host(`auth.jlam.nl`)"
+      - "traefik.http.routers.authentik.entrypoints=web"
+      - "traefik.http.routers.authentik.middlewares=authentik-redirect"
+      - "traefik.http.routers.authentik.priority=100"
+      # HTTPS router
+      - "traefik.http.routers.authentik-secure.rule=Host(`auth.jlam.nl`)"
+      - "traefik.http.routers.authentik-secure.entrypoints=websecure"
+      - "traefik.http.routers.authentik-secure.tls=true"
+      - "traefik.http.routers.authentik-secure.priority=100"
+      # Service configuration
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      # Middleware for redirect
+      - "traefik.http.middlewares.authentik-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.authentik-redirect.redirectscheme.permanent=true"
+      # JLAM service labels
+      - "jlam.service.name=authentik-server"
+      - "jlam.service.type=authentication"
+      - "jlam.service.tier=security"
+      - "jlam.service.version=2024.12.1"
+      - "jlam.monitoring.enabled=true"
+      - "jlam.monitoring.port=9000"
+      - "jlam.scaling.min=1"
+      - "jlam.scaling.max=2"
+      - "odin.pattern=enterprise-auth"
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.12.1
+    container_name: jlam-authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      # Database Configuration
+      AUTHENTIK_POSTGRESQL__HOST: 51.158.128.5
+      AUTHENTIK_POSTGRESQL__PORT: 5457
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik_app
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+      # Redis Configuration
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PORT: 6379
+    volumes:
+      - authentik_media:/media
+      - authentik_certs:/certs
+      - authentik_custom_templates:/templates
+    networks:
+      - jlam-network
+    depends_on:
+      - authentik-redis
+    healthcheck:
+      test: ["CMD-SHELL", "ak healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "jlam.service.name=authentik-worker"
+      - "jlam.service.type=authentication-worker"
+      - "jlam.service.tier=security"
+      - "jlam.service.version=2024.12.1"
+      - "jlam.monitoring.enabled=false"
+      - "jlam.scaling.min=1"
+      - "jlam.scaling.max=2"
+      - "odin.pattern=enterprise-worker"
+
+  authentik-redis:
+    image: redis:alpine
+    container_name: jlam-authentik-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - authentik_redis:/data
+    networks:
+      - jlam-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "jlam.service.name=authentik-redis"
+      - "jlam.service.type=cache"
+      - "jlam.service.tier=data"
+      - "jlam.service.version=alpine"
+      - "jlam.monitoring.enabled=true"
+      - "jlam.scaling.min=1"
+      - "jlam.scaling.max=1"
+      - "odin.pattern=enterprise-cache"
+
+volumes:
+  authentik_media:
+    driver: local
+  authentik_certs:
+    driver: local
+  authentik_custom_templates:
+    driver: local
+  authentik_redis:
+    driver: local
 
 networks:
   jlam-network:
