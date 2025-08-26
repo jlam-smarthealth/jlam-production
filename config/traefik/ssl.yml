@@ -1,0 +1,9 @@
+tls:
+  certificates:
+    - certFile: /etc/ssl/jlam/certificate.crt
+      keyFile: /etc/ssl/jlam/certificate.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/ssl/jlam/certificate.crt
+        keyFile: /etc/ssl/jlam/certificate.key

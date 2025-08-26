@@ -1,0 +1,105 @@
+# JLAM Production Infrastructure - .gitignore
+# Enterprise-grade gitignore for clean repository management
+
+# ===== SECURITY - NEVER COMMIT =====
+# SSL Certificates (CRITICAL - NEVER COMMIT PRIVATE KEYS)
+*.key
+*.pem
+*.p12
+*.pfx
+config/ssl/*.key
+config/ssl/private/
+
+# Secrets and Environment Files
+.env
+.env.*
+*secret*
+*password*
+*key*
+
+# ===== TERRAFORM STATE FILES =====
+# Terraform state contains sensitive data
+terraform.tfstate
+terraform.tfstate.*
+terraform.tfstate.backup
+*.tfplan
+*.tfplan.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.auto.tfvars
+
+# ===== DOCKER & CONTAINERS =====
+# Container data and logs
+docker-compose.override.yml
+docker-compose.*.local.yml
+.docker/
+volumes/
+logs/
+*.log
+
+# ===== DEVELOPMENT FILES =====
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.tmp/
+tmp/
+
+# ===== BACKUP FILES =====
+# Backups and snapshots
+*.backup
+*.bak
+*.old
+*.orig
+backup/
+backups/
+snapshots/
+
+# ===== CI/CD ARTIFACTS =====
+# Build artifacts
+dist/
+build/
+.build/
+coverage/
+.coverage
+*.coverage
+.pytest_cache/
+
+# ===== MONITORING & METRICS =====
+# Monitoring data
+metrics/
+prometheus/data/
+grafana/data/
+.monitoring/
+
+# ===== DOCUMENTATION BUILDS =====
+# Generated documentation
+docs/build/
+docs/_build/
+*.pdf
+*.docx
+
+# ===== CERTIFICATES & KEYS (DOUBLE CHECK) =====
+# Extra protection against certificate commits
+cabundle.crt
+fullchain.crt
+certificate.crt
+cert.pem
+privkey.pem
+
+# ===== KEEP THESE COMMENTS FOR SECURITY REMINDERS =====
+# SECURITY REMINDER: 
+# - Never commit SSL private keys or certificates
+# - Always use environment variables for secrets
+# - Check files before commit with: git diff --cached
+# - Use: git secrets --scan to check for exposed secrets

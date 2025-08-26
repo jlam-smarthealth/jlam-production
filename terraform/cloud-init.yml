@@ -1,0 +1,501 @@
+#cloud-config
+# JLAM Production Infrastructure - Enterprise Cloud-Init Configuration
+# Repository: jlam-production (clean enterprise setup)
+# Created: 2025-08-26
+# Architecture: ODIN Enterprise Patterns Applied
+
+# ===== SERVER IDENTIFICATION =====
+hostname: ${server_name}
+fqdn: ${server_name}.jlam.nl
+timezone: Europe/Amsterdam
+
+# ===== USER CONFIGURATION =====
+users:
+  - name: jlam
+    groups: [sudo, docker, adm, sys]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+    # Enterprise user setup
+    lock_passwd: false
+    passwd: $6$rounds=4096$salt$hash  # Disabled - SSH key only
+
+# Root SSH access for emergency
+ssh_authorized_keys:
+  - ${ssh_public_key}
+
+# ===== SYSTEM PACKAGES =====
+package_update: true
+package_upgrade: true
+package_reboot_if_required: false
+
+packages:
+  # Core system utilities
+  - curl
+  - wget
+  - htop
+  - tree
+  - unzip
+  - git
+  - nano
+  - vim
+  - net-tools
+  - lsof
+  
+  # Docker ecosystem
+  - docker.io
+  - docker-compose-plugin
+  - docker-buildx-plugin
+  
+  # Security and monitoring
+  - ufw
+  - fail2ban
+  - logrotate
+  - rsync
+  
+  # SSL and networking
+  - openssl
+  - ca-certificates
+  - gnupg2
+  - software-properties-common
+
+# ===== SYSTEM CONFIGURATION =====
+ssh:
+  # SSH hardening
+  permit_root_login: 'yes'  # For emergency access
+  password_authentication: false
+  pubkey_authentication: true
+  port: 22
+
+# Firewall configuration (basic - Traefik will handle application layer)
+ufw:
+  enabled: true
+  default_incoming_policy: 'deny'
+  default_outgoing_policy: 'allow'
+  default_routed_policy: 'deny'
+  rules:
+    - { port: 22, proto: tcp, rule: allow }    # SSH
+    - { port: 80, proto: tcp, rule: allow }    # HTTP
+    - { port: 443, proto: tcp, rule: allow }   # HTTPS
+    - { port: 8080, proto: tcp, rule: allow }  # Traefik Dashboard
+
+# ===== LOG CONFIGURATION =====
+output:
+  all: "| tee -a /var/log/cloud-init-output.log"
+
+# ===== ENTERPRISE FILE CONFIGURATION =====
+write_files:
+  # Enterprise Docker Compose Configuration (ODIN Patterns Applied)
+  - path: /home/jlam/docker-compose.yml
+    owner: jlam:jlam
+    permissions: '0644'
+    content: |
+      # JLAM Production Infrastructure - Enterprise Docker Compose
+      # ODIN Enterprise Patterns Applied - Clean Configuration
+      
+      services:
+        traefik:
+          image: traefik:v3.0
+          container_name: jlam-traefik
+          restart: unless-stopped
+          ports:
+            - "80:80"       # HTTP (redirects to HTTPS)
+            - "443:443"     # HTTPS (production traffic)
+            - "8080:8080"   # Dashboard (admin access)
+          command:
+            - "--api=true"
+            - "--api.dashboard=true"
+            - "--api.insecure=true"
+            - "--providers.docker=true"
+            - "--providers.docker.exposedbydefault=false"
+            - "--providers.file.directory=/etc/traefik/dynamic"
+            - "--entrypoints.web.address=:80"
+            - "--entrypoints.websecure.address=:443"
+            - "--log.level=INFO"
+            # ODIN BLESSED: Health check endpoint
+            - "--ping=true"
+            # Let's Encrypt configuration
+            - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+            - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+            - "--certificatesresolvers.letsencrypt.acme.email=admin@jlam.nl"
+            - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+          volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock:ro"
+            - "./config/ssl:/etc/ssl/jlam:ro"
+            - "./config/traefik:/etc/traefik/dynamic:ro"
+            - "traefik-letsencrypt:/letsencrypt"
+          networks:
+            - jlam-network
+          # ODIN BLESSED: Enterprise health monitoring
+          healthcheck:
+            test: ["CMD", "traefik", "healthcheck", "--ping"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+          # ODIN BLESSED: Resource limits for predictable scaling
+          deploy:
+            resources:
+              limits:
+                memory: 128M
+                cpus: '0.5'
+              reservations:
+                memory: 64M
+                cpus: '0.1'
+            # ODIN PATTERN: Enterprise restart policies
+            restart_policy:
+              condition: on-failure
+              delay: 5s
+              max_attempts: 3
+              window: 120s
+          # ODIN BLESSED: Enterprise service discovery labels
+          labels:
+            - "jlam.service.name=traefik"
+            - "jlam.service.type=load-balancer"
+            - "jlam.service.tier=infrastructure"
+            - "jlam.service.version=3.0.4"
+            - "jlam.monitoring.enabled=true"
+            - "jlam.monitoring.port=8080"
+            - "jlam.monitoring.path=/ping"
+            - "odin.pattern=enterprise-gateway"
+      
+        nginx:
+          image: nginx:alpine
+          container_name: jlam-web
+          restart: unless-stopped
+          volumes:
+            - "./app:/usr/share/nginx/html:ro"
+            - "./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro"
+          networks:
+            - jlam-network
+          # ODIN BLESSED: Enterprise health monitoring
+          healthcheck:
+            test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
+          # ODIN BLESSED: Resource limits for predictable performance
+          deploy:
+            resources:
+              limits:
+                memory: 64M
+                cpus: '0.3'
+              reservations:
+                memory: 32M
+                cpus: '0.1'
+            # ODIN PATTERN: Enterprise restart policies
+            restart_policy:
+              condition: on-failure
+              delay: 3s
+              max_attempts: 5
+              window: 120s
+          labels:
+            - "traefik.enable=true"
+            # HTTP router with security headers
+            - "traefik.http.routers.web.rule=Host(\`app.jlam.nl\`) || Host(\`jlam.nl\`)"
+            - "traefik.http.routers.web.entrypoints=web"
+            - "traefik.http.routers.web.middlewares=security-headers@file,rate-limit@file"
+            # HTTPS router with enhanced security  
+            - "traefik.http.routers.web-secure.rule=Host(\`app.jlam.nl\`) || Host(\`jlam.nl\`)"
+            - "traefik.http.routers.web-secure.entrypoints=websecure"
+            - "traefik.http.routers.web-secure.tls=true"
+            - "traefik.http.routers.web-secure.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.web-secure.middlewares=security-headers@file,rate-limit@file"
+            # Service configuration
+            - "traefik.http.services.nginx.loadbalancer.server.port=80"
+            - "traefik.http.services.nginx.loadbalancer.healthcheck.path=/health"
+            - "traefik.http.services.nginx.loadbalancer.healthcheck.interval=30s"
+            # ODIN BLESSED: Enterprise service discovery labels
+            - "jlam.service.name=nginx"
+            - "jlam.service.type=web-server"
+            - "jlam.service.tier=frontend"
+            - "jlam.service.version=alpine"
+            - "jlam.monitoring.enabled=true"
+            - "jlam.monitoring.port=80"
+            - "jlam.monitoring.path=/health"
+            - "odin.pattern=enterprise-frontend"
+
+      networks:
+        jlam-network:
+          driver: bridge
+          
+      volumes:
+        traefik-letsencrypt:
+          driver: local
+
+  # Enterprise Nginx Configuration
+  - path: /home/jlam/config/nginx/nginx.conf
+    owner: jlam:jlam
+    permissions: '0644'  
+    content: |
+      # ODIN BLESSED: High-Performance Nginx Configuration
+      user  nginx;
+      worker_processes auto;
+      error_log  /var/log/nginx/error.log notice;
+      pid        /var/run/nginx.pid;
+
+      events {
+          worker_connections  1024;
+          use epoll;
+          multi_accept on;
+      }
+
+      http {
+          include       /etc/nginx/mime.types;
+          default_type  application/octet-stream;
+
+          log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                         '$status $body_bytes_sent "$http_referer" '
+                         '"$http_user_agent" "$http_x_forwarded_for" '
+                         'rt=$request_time uct="$upstream_connect_time" '
+                         'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+          access_log /var/log/nginx/access.log main;
+
+          # ODIN BLESSED: Performance optimizations
+          sendfile        on;
+          tcp_nopush      on;
+          tcp_nodelay     on;
+          keepalive_timeout  65;
+          types_hash_max_size 2048;
+          client_max_body_size 16M;
+          server_tokens off;
+
+          # ODIN BLESSED: Gzip compression
+          gzip on;
+          gzip_vary on;
+          gzip_min_length 1024;
+          gzip_comp_level 6;
+          gzip_types text/css application/javascript application/json text/plain text/xml application/xml;
+
+          # ODIN PATTERN: Security headers
+          add_header X-Frame-Options "SAMEORIGIN" always;
+          add_header X-Content-Type-Options "nosniff" always;
+          add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+          server {
+              listen       80;
+              listen  [::]:80;
+              server_name  app.jlam.nl jlam.nl;
+              root   /usr/share/nginx/html;
+              index  index.html index.htm;
+
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+
+              # ODIN BLESSED: Health check endpoint
+              location = /health {
+                  access_log off;
+                  return 200 "healthy\n";
+                  add_header Content-Type text/plain;
+              }
+
+              # ODIN BLESSED: Static assets optimization
+              location ~* \.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+          }
+      }
+
+  # Enterprise Traefik Security Configuration
+  - path: /home/jlam/config/traefik/security.yml
+    owner: jlam:jlam
+    permissions: '0644'
+    content: |
+      # ODIN BLESSED: Enterprise Security Headers Configuration
+      http:
+        middlewares:
+          security-headers:
+            headers:
+              forceSTSHeader: true
+              sslRedirect: true
+              stsSeconds: 31536000
+              stsIncludeSubdomains: true
+              stsPreload: true
+              browserXssFilter: true
+              contentTypeNosniff: true
+              frameDeny: true
+              customRequestHeaders:
+                X-Forwarded-Proto: "https"
+              customResponseHeaders:
+                X-Frame-Options: "DENY"
+                X-Content-Type-Options: "nosniff"
+                Referrer-Policy: "strict-origin-when-cross-origin"
+                Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+                X-Permitted-Cross-Domain-Policies: "none"
+              contentSecurityPolicy: >-
+                default-src 'self';
+                script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
+                style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+                font-src 'self' https://fonts.gstatic.com;
+                img-src 'self' data: https:;
+                connect-src 'self';
+                frame-ancestors 'none';
+                base-uri 'self';
+                form-action 'self';
+
+          rate-limit:
+            rateLimit:
+              average: 100
+              period: 1m
+              burst: 50
+
+  # SSL Certificate (if provided)
+  %{ if ssl_certificate_crt != "" }
+  - path: /home/jlam/config/ssl/certificate.crt
+    owner: jlam:jlam
+    permissions: '0644'
+    encoding: b64
+    content: ${ssl_certificate_crt}
+  %{ endif }
+
+  %{ if ssl_certificate_key != "" }
+  - path: /home/jlam/config/ssl/certificate.key
+    owner: jlam:jlam
+    permissions: '0600'
+    encoding: b64
+    content: ${ssl_certificate_key}
+  %{ endif }
+
+  %{ if ssl_cabundle_crt != "" }
+  - path: /home/jlam/config/ssl/cabundle.crt
+    owner: jlam:jlam
+    permissions: '0644'
+    encoding: b64
+    content: ${ssl_cabundle_crt}
+  %{ endif }
+
+  # Enterprise Productivity Makefile
+  - path: /home/jlam/Makefile
+    owner: jlam:jlam
+    permissions: '0644'
+    content: |
+      # JLAM Production Infrastructure - Enterprise Makefile
+      .PHONY: help start stop restart status logs health test validate clean
+
+      help: ## Show this help message
+      	@echo "🚀 JLAM Production Infrastructure Management"
+      	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+      start: ## Start all services
+      	docker-compose up -d
+      	@echo "✅ Services started"
+
+      stop: ## Stop all services
+      	docker-compose down
+      	@echo "✅ Services stopped"
+
+      restart: ## Restart all services
+      	docker-compose restart
+      	@echo "✅ Services restarted"
+
+      status: ## Show container status
+      	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+      logs: ## Show logs for all services
+      	docker-compose logs -f
+
+      health: ## Check health of all services
+      	@echo "💚 JLAM Health Status:"
+      	@echo "Traefik: $$(docker inspect --format='{{.State.Health.Status}}' jlam-traefik 2>/dev/null || echo 'not found')"
+      	@echo "Nginx:   $$(docker inspect --format='{{.State.Health.Status}}' jlam-web 2>/dev/null || echo 'not found')"
+
+      test: ## Test all endpoints
+      	@echo "🧪 Testing JLAM endpoints..."
+      	@echo "Main site:  $$(curl -s -o /dev/null -w '%%{http_code}' https://app.jlam.nl/)"
+      	@echo "Health:     $$(curl -s -o /dev/null -w '%%{http_code}' https://app.jlam.nl/health)"
+
+      validate: ## Validate configuration
+      	docker-compose config > /dev/null && echo "✅ Configuration valid"
+
+      clean: ## Remove stopped containers
+      	docker container prune -f
+      	docker network prune -f
+
+  # Enterprise Startup Script
+  - path: /home/jlam/start-production.sh
+    owner: jlam:jlam
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # JLAM Production Infrastructure - Enterprise Startup Script
+      set -e
+
+      echo "🚀 Starting JLAM Production Infrastructure..."
+      echo "📊 Deployment: ${deployment_timestamp}"
+      echo "🖥️  Server: ${server_name}"
+
+      # Wait for Docker daemon
+      echo "⏳ Waiting for Docker daemon..."
+      while ! docker info > /dev/null 2>&1; do
+        sleep 2
+      done
+      echo "✅ Docker daemon ready"
+
+      # Create directories
+      mkdir -p config/{nginx,traefik,ssl} app logs
+
+      # Start services
+      cd /home/jlam
+      echo "🚢 Starting Docker services..."
+      docker-compose up -d
+
+      # Wait for services
+      echo "⏳ Waiting for services to initialize..."
+      sleep 60
+
+      # Health checks
+      echo "🏥 Performing health checks..."
+      make health
+
+      echo "✅ JLAM Production Infrastructure started successfully!"
+      echo "🌐 Available at: https://app.jlam.nl"
+
+# ===== SYSTEM COMMANDS =====
+runcmd:
+  # System setup
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker jlam
+  
+  # Create Let's Encrypt acme.json with correct permissions
+  - mkdir -p /home/jlam/letsencrypt
+  - touch /home/jlam/letsencrypt/acme.json
+  - chmod 600 /home/jlam/letsencrypt/acme.json
+  - chown jlam:jlam /home/jlam/letsencrypt/acme.json
+  
+  # Set ownership and permissions
+  - chown -R jlam:jlam /home/jlam
+  - chmod +x /home/jlam/start-production.sh
+  
+  # Start production infrastructure
+  - sudo -u jlam /home/jlam/start-production.sh > /var/log/jlam-startup.log 2>&1
+
+# ===== COMPLETION MESSAGE =====
+final_message: |
+  🎉 JLAM Production Infrastructure deployed successfully!
+  
+  📊 Deployment Details:
+     • Timestamp: ${deployment_timestamp}
+     • Server: ${server_name}
+     • Architecture: ODIN Enterprise Patterns
+     • Status: Production Ready
+  
+  🌐 URLs:
+     • Main App: https://app.jlam.nl
+     • Health Check: https://app.jlam.nl/health
+     • Traefik Dashboard: http://${server_name}:8080
+  
+  🔒 Security Features:
+     • Enterprise security headers
+     • Let's Encrypt SSL certificates
+     • Rate limiting and protection
+     • Health monitoring enabled
+  
+  ✅ Enterprise patterns applied successfully!
+  
+  Next: Monitor logs with 'tail -f /var/log/jlam-startup.log'

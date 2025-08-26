@@ -1,0 +1,59 @@
+# ODIN BLESSED: Enterprise Security Headers Configuration
+# Advanced security middleware for production-grade protection
+# Created by: ELITE DEVOPS MASTER
+
+http:
+  middlewares:
+    # ODIN PATTERN: Comprehensive security headers
+    security-headers:
+      headers:
+        # ODIN BLESSED: SSL/TLS Security
+        forceSTSHeader: true
+        sslRedirect: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        
+        # ODIN PATTERN: Enhanced security headers
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        
+        # ODIN BLESSED: Custom security headers
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+          X-Permitted-Cross-Domain-Policies: "none"
+          
+        # ODIN PATTERN: Content Security Policy (Enhanced)
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' https://fonts.gstatic.com;
+          img-src 'self' data: https:;
+          connect-src 'self';
+          frame-ancestors 'none';
+          base-uri 'self';
+          form-action 'self';
+
+    # ODIN BLESSED: Rate limiting for security
+    rate-limit:
+      rateLimit:
+        average: 100
+        period: 1m
+        burst: 50
+
+    # ODIN PATTERN: IP whitelist for admin endpoints
+    admin-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "::1/128"
+          - "172.16.0.0/12"  # Docker networks
+          - "192.168.0.0/16" # Local networks
+
