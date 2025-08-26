@@ -94,6 +94,7 @@ docs/_build/
 cabundle.crt
 fullchain.crt
 certificate.crt
+certificate.p7b
 cert.pem
 privkey.pem
 
