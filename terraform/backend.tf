@@ -7,7 +7,7 @@ terraform {
   # Backend configuration for Terraform Cloud
   cloud {
     organization = "jlam"
-    
+
     workspaces {
       tags = ["jlam", "healthcare", "production"]
     }

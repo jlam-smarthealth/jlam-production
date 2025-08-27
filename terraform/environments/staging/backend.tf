@@ -5,7 +5,7 @@
 terraform {
   cloud {
     organization = "jlam"
-    
+
     workspaces {
       name = "jlam-staging"
     }

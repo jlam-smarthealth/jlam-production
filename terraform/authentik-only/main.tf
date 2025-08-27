@@ -20,7 +20,7 @@ variable "authentik_database_password" {
 }
 
 variable "authentik_app_password" {
-  description = "Authentik application user password"  
+  description = "Authentik application user password"
   type        = string
   sensitive   = true
 }
@@ -33,12 +33,12 @@ variable "scaleway_region" {
 
 # Authentik Database Instance - Dedicated Authentication Database
 resource "scaleway_rdb_instance" "authentik_database" {
-  name           = "jlam-authentik-db"
-  node_type      = "DB-DEV-S"
-  engine         = "PostgreSQL-15"
-  is_ha_cluster  = false
-  disable_backup = false
-  volume_type    = "sbs_5k"
+  name              = "jlam-authentik-db"
+  node_type         = "DB-DEV-S"
+  engine            = "PostgreSQL-15"
+  is_ha_cluster     = false
+  disable_backup    = false
+  volume_type       = "sbs_5k"
   volume_size_in_gb = 20
 
   # Security and Access
@@ -48,16 +48,16 @@ resource "scaleway_rdb_instance" "authentik_database" {
   # Backup Configuration
   backup_schedule_frequency = 24 # Daily backups
   backup_schedule_retention = 7  # Keep 7 days
-  
+
   # Enable public access for initial setup (can be disabled later)
   backup_same_region = true
-  
+
   region = var.scaleway_region
 
   tags = [
     "jlam",
     "authentik",
-    "authentication", 
+    "authentication",
     "database",
     "production",
     "managed-by-terraform"
@@ -90,11 +90,11 @@ resource "scaleway_rdb_privilege" "authentik_app_privileges" {
 output "authentik_database_connection" {
   description = "Authentik database connection information"
   value = {
-    host = scaleway_rdb_instance.authentik_database.load_balancer[0].ip
-    port = scaleway_rdb_instance.authentik_database.load_balancer[0].port
-    name = scaleway_rdb_database.authentik.name
+    host       = scaleway_rdb_instance.authentik_database.load_balancer[0].ip
+    port       = scaleway_rdb_instance.authentik_database.load_balancer[0].port
+    name       = scaleway_rdb_database.authentik.name
     admin_user = "authentik_user"
-    app_user = "authentik_app"
+    app_user   = "authentik_app"
   }
   sensitive = false
 }

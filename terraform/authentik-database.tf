@@ -3,12 +3,12 @@
 # Keeps authentication data completely isolated from JLAM application data
 
 resource "scaleway_rdb_instance" "authentik_database" {
-  name           = "jlam-authentik-db"
-  node_type      = "DB-DEV-S"
-  engine         = "PostgreSQL-15"
-  is_ha_cluster  = false
-  disable_backup = false
-  volume_type    = "bssd"
+  name              = "jlam-authentik-db"
+  node_type         = "DB-DEV-S"
+  engine            = "PostgreSQL-15"
+  is_ha_cluster     = false
+  disable_backup    = false
+  volume_type       = "bssd"
   volume_size_in_gb = 20
 
   # Security and Access
@@ -18,7 +18,7 @@ resource "scaleway_rdb_instance" "authentik_database" {
   # Backup Configuration
   backup_schedule_frequency = 24 # Daily backups
   backup_schedule_retention = 7  # Keep 7 days
-  
+
   # Network Security
   private_network {
     pn_id = scaleway_vpc_private_network.jlam_network.id
@@ -26,13 +26,13 @@ resource "scaleway_rdb_instance" "authentik_database" {
 
   # Enable public access for initial setup (can be disabled later)
   backup_same_region = true
-  
+
   region = var.scaleway_region
 
   tags = [
     "jlam",
     "authentik",
-    "authentication", 
+    "authentication",
     "database",
     "production",
     "managed-by-terraform"
@@ -65,10 +65,10 @@ resource "scaleway_rdb_privilege" "authentik_app_privileges" {
 resource "scaleway_vpc_private_network" "jlam_network" {
   name   = "jlam-private-network"
   region = var.scaleway_region
-  
+
   tags = [
     "jlam",
-    "production", 
+    "production",
     "private-network",
     "managed-by-terraform"
   ]
