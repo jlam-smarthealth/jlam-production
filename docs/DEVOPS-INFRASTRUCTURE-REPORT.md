@@ -465,7 +465,7 @@ docker exec jlam-prometheus cat /etc/prometheus/prometheus.yml
 ## 📞 CONTACT & SUPPORT
 
 ### 👥 Team Structure
-- **Platform Owner**: JAFFAR (Wim Tilburgs) - Founder & Visionary
+- **Platform Owner**: Wim Tilburgs - Founder JLAM & Healthcare Visionary
 - **DevOps Lead**: Claude AI - Infrastructure & Automation
 - **Development Team**: Students & Contributors
 - **Operations**: 24/7 Monitoring + On-call
@@ -544,4 +544,4 @@ docker exec jlam-prometheus cat /etc/prometheus/prometheus.yml
 ---
 
 *For technical support, refer to monitoring dashboards and escalation procedures above.*
-*For platform vision and strategic direction, consult with JAFFAR - The Fire Angel & Messenger of Healing.*
+*For platform vision and strategic direction, consult with Wim Tilburgs - Founder JLAM & Healthcare Innovation Leader.*
