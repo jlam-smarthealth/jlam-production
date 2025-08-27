@@ -101,7 +101,7 @@ output "health_check_urls" {
 
 # ===== DATABASE CONNECTION INFO =====
 output "database_connection" {
-  description = "Database connection information (host and port only)"
+  description = "JLAM database connection information (host and port only)"
   value = {
     host = var.jlam_database_host
     port = var.jlam_database_port
@@ -109,6 +109,17 @@ output "database_connection" {
     # Note: username and password are not exposed for security
   }
   sensitive = true
+}
+
+output "authentik_database_connection" {
+  description = "Authentik database connection information"
+  value = {
+    host = scaleway_rdb_instance.authentik_database.endpoint_ip
+    port = scaleway_rdb_instance.authentik_database.endpoint_port
+    name = scaleway_rdb_database.authentik.name
+    # Note: credentials not exposed in outputs for security
+  }
+  sensitive = false
 }
 
 # ===== RESOURCE TAGS =====

@@ -194,11 +194,11 @@ write_files:
           labels:
             - "traefik.enable=true"
             # HTTP router with security headers
-            - "traefik.http.routers.web.rule=Host(\`app.jlam.nl\`) || Host(\`jlam.nl\`)"
+            - "traefik.http.routers.web.rule=Host(\`jlam.nl\`)"
             - "traefik.http.routers.web.entrypoints=web"
             - "traefik.http.routers.web.middlewares=security-headers@file,rate-limit@file"
             # HTTPS router with enhanced security  
-            - "traefik.http.routers.web-secure.rule=Host(\`app.jlam.nl\`) || Host(\`jlam.nl\`)"
+            - "traefik.http.routers.web-secure.rule=Host(\`jlam.nl\`)"
             - "traefik.http.routers.web-secure.entrypoints=websecure"
             - "traefik.http.routers.web-secure.tls=true"
             - "traefik.http.routers.web-secure.tls.certresolver=letsencrypt"
@@ -278,7 +278,7 @@ write_files:
           server {
               listen       80;
               listen  [::]:80;
-              server_name  app.jlam.nl jlam.nl;
+              server_name  jlam.nl;
               root   /usr/share/nginx/html;
               index  index.html index.htm;
 
@@ -406,8 +406,8 @@ write_files:
 
       test: ## Test all endpoints
       	@echo "🧪 Testing JLAM endpoints..."
-      	@echo "Main site:  $$(curl -s -o /dev/null -w '%%{http_code}' https://app.jlam.nl/)"
-      	@echo "Health:     $$(curl -s -o /dev/null -w '%%{http_code}' https://app.jlam.nl/health)"
+      	@echo "Main site:  $$(curl -s -o /dev/null -w '%%{http_code}' https://jlam.nl/)"
+      	@echo "Health:     $$(curl -s -o /dev/null -w '%%{http_code}' https://jlam.nl/health)"
 
       validate: ## Validate configuration
       	docker-compose config > /dev/null && echo "✅ Configuration valid"
@@ -453,7 +453,7 @@ write_files:
       make health
 
       echo "✅ JLAM Production Infrastructure started successfully!"
-      echo "🌐 Available at: https://app.jlam.nl"
+      echo "🌐 Available at: https://jlam.nl"
 
 # ===== SYSTEM COMMANDS =====
 runcmd:
@@ -486,8 +486,8 @@ final_message: |
      • Status: Production Ready
   
   🌐 URLs:
-     • Main App: https://app.jlam.nl
-     • Health Check: https://app.jlam.nl/health
+     • Main App: https://jlam.nl
+     • Health Check: https://jlam.nl/health
      • Traefik Dashboard: http://${server_name}:8080
   
   🔒 Security Features:

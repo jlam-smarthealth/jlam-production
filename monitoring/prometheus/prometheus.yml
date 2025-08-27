@@ -1,0 +1,163 @@
+# JLAM Prometheus Configuration
+# Created: 2025-08-27
+# Purpose: Metrics collection and alerting
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    project: 'jlam'
+    cluster: 'primary'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ============================================
+  # PROMETHEUS SELF-MONITORING
+  # ============================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          tier: 'monitoring'
+
+  # ============================================
+  # NODE EXPORTER - System Metrics
+  # ============================================
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+          tier: 'infrastructure'
+    metric_relabel_configs:
+      # Drop unnecessary metrics to reduce cardinality
+      - source_labels: [__name__]
+        regex: 'node_scrape_collector_.*'
+        action: drop
+
+  # ============================================
+  # DOCKER CONTAINERS - cAdvisor
+  # ============================================
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          service: 'cadvisor'
+          tier: 'containers'
+    metric_relabel_configs:
+      # Keep only important container metrics
+      - source_labels: [__name__]
+        regex: 'container_(cpu_usage_seconds_total|memory_usage_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_usage_bytes)'
+        action: keep
+
+  # ============================================
+  # POSTGRESQL DATABASE
+  # ============================================
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgresql'
+          tier: 'database'
+          database: 'jlam_main'
+
+  # ============================================
+  # TRAEFIK LOAD BALANCER
+  # ============================================
+  - job_name: 'traefik'
+    static_configs:
+      - targets: ['traefik:8080']
+        labels:
+          service: 'traefik'
+          tier: 'load-balancer'
+
+  # ============================================
+  # BLACKBOX - Endpoint Monitoring
+  # ============================================
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://jlam.nl
+          - https://auth.jlam.nl
+          - https://jlam.nl/health
+        labels:
+          tier: 'frontend'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ============================================
+  # AUTHENTIK SSO
+  # ============================================
+  - job_name: 'authentik'
+    static_configs:
+      - targets: ['authentik-server:9300']
+        labels:
+          service: 'authentik'
+          tier: 'authentication'
+
+  # ============================================
+  # REDIS CACHE
+  # ============================================
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['authentik-redis:6379']
+        labels:
+          service: 'redis'
+          tier: 'cache'
+
+  # ============================================
+  # GRAFANA
+  # ============================================
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+          tier: 'monitoring'
+
+  # ============================================
+  # DOCKER SERVICE DISCOVERY
+  # ============================================
+  - job_name: 'docker'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 30s
+    relabel_configs:
+      # Only monitor containers with prometheus labels
+      - source_labels: [__meta_docker_container_label_prometheus_io_scrape]
+        regex: 'true'
+        action: keep
+      # Use container label for job name
+      - source_labels: [__meta_docker_container_label_prometheus_io_job]
+        target_label: job
+      # Use container name as instance
+      - source_labels: [__meta_docker_container_name]
+        target_label: instance
+      # Extract port from label
+      - source_labels: [__meta_docker_container_label_prometheus_io_port]
+        target_label: __address__
+        replacement: $1:$2
+      # Add container labels
+      - regex: __meta_docker_container_label_jlam_(.+)
+        action: labelmap

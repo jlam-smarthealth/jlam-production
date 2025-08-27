@@ -1,0 +1,158 @@
+# JLAM Critical Alert Rules
+# Priority: P1 - Wake up alerts
+# Created: 2025-08-27
+
+groups:
+  - name: critical_alerts
+    interval: 30s
+    rules:
+      # ============================================
+      # SITE DOWN
+      # ============================================
+      - alert: SiteDown
+        expr: up{job="blackbox-http", instance="https://jlam.nl"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: devops
+          service: website
+        annotations:
+          summary: "CRITICAL: Main website is down"
+          description: "jlam.nl has been unreachable for more than 1 minute. Current value: {{ $value }}"
+          runbook_url: "https://docs.jlam.nl/runbooks/site-down"
+          dashboard: "https://monitor.jlam.nl/d/website-health"
+
+      - alert: AuthServiceDown
+        expr: up{job="blackbox-http", instance="https://auth.jlam.nl"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: devops
+          service: authentication
+        annotations:
+          summary: "CRITICAL: Authentication service is down"
+          description: "auth.jlam.nl has been unreachable for more than 1 minute"
+          runbook_url: "https://docs.jlam.nl/runbooks/auth-down"
+
+      # ============================================
+      # DATABASE
+      # ============================================
+      - alert: PostgreSQLDown
+        expr: up{job="postgresql"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          team: database
+          service: postgresql
+        annotations:
+          summary: "CRITICAL: PostgreSQL database is down"
+          description: "PostgreSQL database connection lost for more than 30 seconds"
+          runbook_url: "https://docs.jlam.nl/runbooks/database-down"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: pg_stat_database_numbackends{datname="rdb"} / pg_settings_max_connections > 0.9
+        for: 2m
+        labels:
+          severity: critical
+          team: database
+          service: postgresql
+        annotations:
+          summary: "CRITICAL: Database connection pool nearly exhausted"
+          description: "PostgreSQL connection pool is at {{ $value | humanizePercentage }} capacity"
+
+      # ============================================
+      # DISK SPACE
+      # ============================================
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "CRITICAL: Disk space critically low"
+          description: "Less than 5% disk space remaining on root filesystem ({{ $value | humanizePercentage }})"
+          runbook_url: "https://docs.jlam.nl/runbooks/disk-space"
+
+      # ============================================
+      # MEMORY
+      # ============================================
+      - alert: OutOfMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "CRITICAL: System out of memory"
+          description: "Less than 5% memory available ({{ $value | humanizePercentage }})"
+          runbook_url: "https://docs.jlam.nl/runbooks/oom"
+
+      # ============================================
+      # SSL CERTIFICATES
+      # ============================================
+      - alert: SSLCertificateExpirySoon
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox-http"} - time() < 3 * 24 * 60 * 60
+        for: 10m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "CRITICAL: SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in less than 3 days"
+          runbook_url: "https://docs.jlam.nl/runbooks/ssl-renewal"
+
+      # ============================================
+      # SECURITY
+      # ============================================
+      - alert: SecurityBreach
+        expr: rate(authentik_failed_logins_total[5m]) > 100
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+          compliance: gdpr
+        annotations:
+          summary: "SECURITY ALERT: Potential brute force attack detected"
+          description: "More than 100 failed login attempts in 5 minutes"
+          runbook_url: "https://docs.jlam.nl/runbooks/security-breach"
+
+      - alert: DataExfiltration
+        expr: rate(node_network_transmit_bytes_total[5m]) > 1e9
+        for: 5m
+        labels:
+          severity: critical
+          team: security
+          compliance: gdpr
+        annotations:
+          summary: "SECURITY ALERT: Unusual network traffic detected"
+          description: "Outbound network traffic exceeds 1GB/5min, possible data exfiltration"
+
+      # ============================================
+      # CONTAINER HEALTH
+      # ============================================
+      - alert: ContainerRestarting
+        expr: rate(container_last_seen[5m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "CRITICAL: Container {{ $labels.name }} restarting frequently"
+          description: "Container has restarted more than 3 times in 5 minutes"
+          runbook_url: "https://docs.jlam.nl/runbooks/container-crash"
+
+      # ============================================
+      # BACKUP FAILURE
+      # ============================================
+      - alert: BackupFailed
+        expr: time() - backup_last_success_timestamp > 25 * 60 * 60
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+          compliance: gdpr
+        annotations:
+          summary: "CRITICAL: Database backup has not run for 25+ hours"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago"
+          runbook_url: "https://docs.jlam.nl/runbooks/backup-failure"

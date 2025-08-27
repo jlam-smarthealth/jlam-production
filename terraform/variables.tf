@@ -65,6 +65,29 @@ variable "jlam_database_name" {
   default     = "rdb"
 }
 
+# ===== AUTHENTIK DATABASE CONFIGURATION =====
+variable "authentik_database_password" {
+  description = "Authentik PostgreSQL admin password"
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.authentik_database_password) >= 16
+    error_message = "Authentik database password must be at least 16 characters long."
+  }
+}
+
+variable "authentik_app_password" {
+  description = "Authentik application user password"
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.authentik_app_password) >= 16
+    error_message = "Authentik app password must be at least 16 characters long."
+  }
+}
+
 # ===== APPLICATION CONFIGURATION =====
 variable "secret_key_base" {
   description = "Application secret key base for session encryption"
