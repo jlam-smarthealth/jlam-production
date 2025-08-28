@@ -1,0 +1,164 @@
+# JLAM Development Environment - WITH PASSAGE AUTHENTICATION
+# Local testing setup for Passage biometric authentication
+# Created: 2025-08-27
+# Purpose: Test Week 1 of Authentication Evolution Strategy
+
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: jlam-dev-traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP port
+      - "443:443"   # HTTPS port 
+      - "8080:8080" # Dashboard port
+    command:
+      - "--api=true"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--log.level=INFO"
+      - "--ping=true"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./config/traefik:/etc/traefik/dynamic:ro"
+    networks:
+      - jlam-dev-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      # Forward Auth Middleware Definition
+      - "traefik.http.middlewares.passage-auth.forwardauth.address=http://passage-auth:3001/auth"
+      - "traefik.http.middlewares.passage-auth.forwardauth.authResponseHeaders=X-Auth-User,X-User-ID,X-User-Email,X-User-Roles,X-Auth-Method"
+      - "traefik.http.middlewares.passage-auth.forwardauth.trustForwardHeader=true"
+      # Security Headers Middleware (loaded from file provider)
+      - "traefik.http.middlewares.security-chain.chain.middlewares=security-headers@file,rate-limit@file"
+      # Service labels
+      - "jlam.service.name=traefik"
+      - "jlam.service.type=api-gateway"
+      - "jlam.environment=development"
+
+  passage-auth:
+    build: ./passage-auth-service
+    container_name: jlam-dev-passage-auth
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      PASSAGE_APP_ID: ${PASSAGE_APP_ID:-your_app_id_here}
+      PASSAGE_API_KEY: ${PASSAGE_API_KEY:-your_api_key_here}
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:80
+      LOG_LEVEL: debug
+    networks:
+      - jlam-dev-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health', res => res.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - ./passage-auth-service:/app:ro  # Mount for development
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.passage-auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
+      - "traefik.http.routers.passage-auth.entrypoints=web"
+      - "traefik.http.services.passage-auth.loadbalancer.server.port=3001"
+      - "jlam.service.name=passage-auth"
+      - "jlam.service.type=authentication"
+      - "jlam.environment=development"
+  
+  jlam-api:
+    build: ./api
+    container_name: jlam-dev-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      # Database config (when you add it later)
+      # DB_HOST: ${DB_HOST}
+      # DB_PORT: ${DB_PORT}
+      # DB_NAME: ${DB_NAME}
+      # DB_USER: ${DB_USER}
+      # DB_PASSWORD: ${DB_PASSWORD}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:80
+      LOG_LEVEL: debug
+    networks:
+      - jlam-dev-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/system/health', res => res.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      - passage-auth
+    labels:
+      - "traefik.enable=true"
+      
+      # HTTP Router
+      - "traefik.http.routers.jlam-api-dev.rule=Host(`localhost`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.jlam-api-dev.entrypoints=web"
+      - "traefik.http.routers.jlam-api-dev.middlewares=security-headers@file,api-rate-limit@file,passage-auth"
+      - "traefik.http.routers.jlam-api-dev.priority=100"
+      
+      # Service
+      - "traefik.http.services.jlam-api-dev.loadbalancer.server.port=3000"
+      
+      # Service labels
+      - "jlam.service.name=jlam-api"
+      - "jlam.service.type=api-server"
+      - "jlam.environment=development"
+
+  jlam-landing:
+    build: ./landing
+    container_name: jlam-dev-landing
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 80
+    networks:
+      - jlam-dev-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:80/health', res => res.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      - passage-auth
+    volumes:
+      - ./landing/src:/app/src:ro  # Mount for development
+    labels:
+      - "traefik.enable=true"
+      
+      # HTTP Router for Landing Page (public)
+      - "traefik.http.routers.jlam-landing-dev.rule=Host(`localhost`)"
+      - "traefik.http.routers.jlam-landing-dev.entrypoints=web"
+      - "traefik.http.routers.jlam-landing-dev.middlewares=security-headers@file,rate-limit@file"
+      - "traefik.http.routers.jlam-landing-dev.priority=1"
+      
+      # Service
+      - "traefik.http.services.jlam-landing-dev.loadbalancer.server.port=80"
+      
+      # Service labels
+      - "jlam.service.name=jlam-landing"
+      - "jlam.service.type=frontend"
+      - "jlam.environment=development"
+
+networks:
+  jlam-dev-network:
+    driver: bridge
+    name: jlam-dev-network
