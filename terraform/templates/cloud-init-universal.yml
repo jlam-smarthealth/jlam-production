@@ -1,0 +1,161 @@
+#cloud-config
+# JLAM Universal Server Setup with SSL
+# Supports: development, staging, production
+# Created: 2025-08-28
+
+# System packages
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - curl
+  - wget
+  - unzip
+  - jq
+
+# SSL Certificates (via module)
+write_files:
+%{ for file in ssl_write_files ~}
+  - path: ${file.path}
+    content: |
+      ${file.content}
+    permissions: '${file.permissions}'
+    owner: ${file.owner}
+%{ endfor ~}
+  
+  # Docker Compose Configuration
+  - path: /opt/jlam/docker-compose.yml
+    content: |
+      version: '3.8'
+      
+      services:
+        traefik:
+          image: traefik:v3.0
+          container_name: jlam-${environment}-traefik
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"  
+            - "8080:8080"
+          command:
+            - "--api=true"
+            - "--api.dashboard=true"
+            - "--api.insecure=true"
+            - "--providers.docker=true"
+            - "--providers.docker.exposedbydefault=false"
+            - "--providers.docker.network=jlam-${environment}-network"
+            - "--providers.file.directory=/etc/traefik/dynamic"
+            - "--providers.file.watch=true"
+            - "--entrypoints.web.address=:80"
+            - "--entrypoints.websecure.address=:443"
+            - "--log.level=INFO"
+            - "--ping=true"
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - /opt/jlam/config/traefik:/etc/traefik:ro
+            - ${ssl_directory}:/etc/ssl/jlam:ro
+          networks:
+            - jlam-${environment}-network
+          labels:
+            - "traefik.enable=true"
+            - "jlam.service.name=traefik"
+            - "jlam.service.type=api-gateway"
+            - "jlam.environment=${environment}"
+
+      networks:
+        jlam-${environment}-network:
+          driver: bridge
+          name: jlam-${environment}-network
+    permissions: '0644'
+    owner: root:root
+
+  # Traefik static configuration
+  - path: /opt/jlam/config/traefik/traefik.yml
+    content: |
+      api:
+        dashboard: true
+        insecure: true
+
+      entryPoints:
+        web:
+          address: ":80"
+        websecure:
+          address: ":443"
+
+      providers:
+        docker:
+          exposedByDefault: false
+          network: jlam-${environment}-network
+        file:
+          directory: /etc/traefik/dynamic
+          watch: true
+
+      log:
+        level: INFO
+
+      ping: {}
+    permissions: '0644'
+    owner: root:root
+
+  # SSL certificate configuration for Traefik
+  - path: /opt/jlam/config/traefik/dynamic/ssl.yml
+    content: |
+      tls:
+        certificates:
+          - certFile: /etc/ssl/jlam/cert.pem
+            keyFile: /etc/ssl/jlam/key.pem
+
+      http:
+        middlewares:
+          security-headers:
+            headers:
+              customRequestHeaders:
+                X-Forwarded-Proto: https
+              customResponseHeaders:
+                X-Frame-Options: DENY
+                X-Content-Type-Options: nosniff
+                X-XSS-Protection: 1; mode=block
+                Strict-Transport-Security: max-age=31536000; includeSubDomains
+    permissions: '0644'
+    owner: root:root
+
+# System setup commands
+runcmd:
+%{ for cmd in ssl_runcmds ~}
+  - ${cmd}
+%{ endfor ~}
+  # Docker setup
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker root
+  
+  # JLAM directories
+  - mkdir -p /opt/jlam/config/traefik/dynamic
+  - chown -R root:root /opt/jlam
+  - chmod -R 755 /opt/jlam
+  
+  # Start services
+  - cd /opt/jlam && docker compose up -d
+  
+  # Verify deployment
+  - sleep 10
+  - docker ps
+  - curl -f http://localhost:8080/ping || echo "Traefik health check failed"
+
+# Final message
+final_message: |
+  JLAM ${environment} server setup complete!
+  
+  Server Ready:
+  - Traefik API Gateway: Running
+  - SSL Certificates: Deployed
+  - Environment: ${environment}
+  - SSL Directory: ${ssl_directory}
+  
+  Next steps:
+  1. Configure DNS: ${environment}.jlam.nl → this server IP
+  2. Deploy application services via docker compose
+  3. Test HTTPS connectivity
+  
+  Dashboard: http://YOUR-IP:8080
+  Status: curl http://YOUR-IP:8080/ping
