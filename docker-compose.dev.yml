@@ -28,7 +28,7 @@ services:
       - "--ping=true"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "./config/traefik:/etc/traefik/dynamic:ro"
+      - "./config/traefik/development.yml:/etc/traefik/dynamic/development.yml:ro"
     networks:
       - jlam-dev-network
     healthcheck:
@@ -57,8 +57,8 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      PASSAGE_APP_ID: ${PASSAGE_APP_ID:-your_app_id_here}
-      PASSAGE_API_KEY: ${PASSAGE_API_KEY:-your_api_key_here}
+      PASSAGE_APP_ID: ${PASSAGE_APP_ID}
+      PASSAGE_API_KEY: ${PASSAGE_API_KEY}
       ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:80
       LOG_LEVEL: debug
     networks:
@@ -111,7 +111,7 @@ services:
       # HTTP Router
       - "traefik.http.routers.jlam-api-dev.rule=Host(`localhost`) && PathPrefix(`/api`)"
       - "traefik.http.routers.jlam-api-dev.entrypoints=web"
-      - "traefik.http.routers.jlam-api-dev.middlewares=security-headers@file,api-rate-limit@file,passage-auth"
+      - "traefik.http.routers.jlam-api-dev.middlewares=dev-api-chain@file,passage-auth"
       - "traefik.http.routers.jlam-api-dev.priority=100"
       
       # Service
@@ -147,7 +147,7 @@ services:
       # HTTP Router for Landing Page (public)
       - "traefik.http.routers.jlam-landing-dev.rule=Host(`localhost`)"
       - "traefik.http.routers.jlam-landing-dev.entrypoints=web"
-      - "traefik.http.routers.jlam-landing-dev.middlewares=security-headers@file,rate-limit@file"
+      - "traefik.http.routers.jlam-landing-dev.middlewares=dev-chain@file"
       - "traefik.http.routers.jlam-landing-dev.priority=1"
       
       # Service

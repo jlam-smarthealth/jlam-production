@@ -1,0 +1,125 @@
+# JLAM Development Environment Configuration
+# Purpose: Development-friendly middleware for local testing
+# Created: 2025-08-28 by DevOps Master
+# Target: Local development environment only
+
+http:
+  middlewares:
+    # ============================================
+    # DEVELOPMENT SECURITY HEADERS - RELAXED
+    # ============================================
+    security-headers:
+      headers:
+        # Prevent clickjacking attacks (relaxed for dev)
+        frameDeny: false
+        customFrameOptionsValue: "SAMEORIGIN"
+        
+        # Enable browser XSS protection
+        browserXssFilter: true
+        
+        # Prevent MIME type sniffing
+        contentTypeNosniff: true
+        
+        # NO HSTS in development (allows HTTP)
+        forceSTSHeader: false
+        
+        # Development-friendly CSP
+        contentSecurityPolicy: |
+          default-src 'self' 'unsafe-eval' 'unsafe-inline';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' https://passage.id https://cdn.passage.id https://psg.so;
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+          font-src 'self' https://fonts.gstatic.com data:;
+          img-src 'self' data: https: blob:;
+          connect-src 'self' https://api.passage.id https://auth.passage.id wss://passage.id https://storage.googleapis.com data: http://localhost:* https://localhost:*;
+          frame-src 'self' https://passage.id;
+          base-uri 'self';
+          form-action 'self';
+          upgrade-insecure-requests;
+        
+        # Referrer Policy
+        referrerPolicy: "no-referrer-when-downgrade"
+
+    # ============================================
+    # DEVELOPMENT RATE LIMITING - VERY RELAXED
+    # ============================================
+    rate-limit:
+      rateLimit:
+        average: 1000     # High limit for development
+        period: 1s
+        burst: 2000       # Very high burst for development
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+            excludedIPs:
+              - "127.0.0.1/32"
+              - "10.0.0.0/8"
+              - "172.16.0.0/12"
+              - "192.168.0.0/16"
+
+    # API-specific rate limiting (also relaxed)
+    api-rate-limit:
+      rateLimit:
+        average: 500      # Relaxed for API development
+        period: 1s
+        burst: 1000
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+            excludedIPs:
+              - "127.0.0.1/32"
+
+    # ============================================
+    # DEVELOPMENT CORS - WIDE OPEN
+    # ============================================
+    cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowOriginList:
+          - http://localhost:*
+          - https://localhost:*
+          - http://127.0.0.1:*
+          - https://127.0.0.1:*
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+        accessControlAllowCredentials: true
+
+    # ============================================
+    # NO COMPRESSION IN DEV (easier debugging)
+    # ============================================
+    no-compression:
+      compress: {}
+
+    # ============================================
+    # DEVELOPMENT CHAINS - MINIMAL MIDDLEWARE
+    # ============================================
+    dev-chain:
+      chain:
+        middlewares:
+          - security-headers
+          - rate-limit
+    
+    dev-api-chain:
+      chain:
+        middlewares:
+          - security-headers
+          - api-rate-limit
+          - cors
+
+    # ============================================
+    # DEBUGGING MIDDLEWARE - DEV ONLY
+    # ============================================
+    debug-headers:
+      headers:
+        customRequestHeaders:
+          X-Dev-Environment: "true"
+        customResponseHeaders:
+          X-Debug-Mode: "enabled"
+          X-Container-Name: "jlam-dev"
