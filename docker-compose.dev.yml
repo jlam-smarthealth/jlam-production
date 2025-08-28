@@ -54,12 +54,15 @@ services:
     build: ./passage-auth-service
     container_name: jlam-dev-passage-auth
     restart: unless-stopped
+    command: ["npm", "run", "dev"]  # Override CMD for hot reloading
+    ports:
+      - "3001:3001"  # Expose auth service directly
     environment:
       NODE_ENV: development
       PORT: 3001
       PASSAGE_APP_ID: ${PASSAGE_APP_ID}
       PASSAGE_API_KEY: ${PASSAGE_API_KEY}
-      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost:80
+      ALLOWED_ORIGINS: http://localhost,http://localhost:80,http://localhost:5173,http://localhost:3000
       LOG_LEVEL: debug
     networks:
       - jlam-dev-network
@@ -70,10 +73,12 @@ services:
       retries: 3
       start_period: 15s
     volumes:
-      - ./passage-auth-service:/app:ro  # Mount for development
+      - ./passage-auth-service:/app:ro  # Mount for hot reloading
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.passage-auth.rule=Host(`localhost`) && PathPrefix(`/auth`)"
+      - "traefik.http.routers.passage-auth.rule=Host(`localhost`) && PathPrefix(`/auth/`)"
+      - "traefik.http.routers.passage-auth.middlewares=auth-stripprefix"
+      - "traefik.http.middlewares.auth-stripprefix.stripprefix.prefixes=/auth"
       - "traefik.http.routers.passage-auth.entrypoints=web"
       - "traefik.http.services.passage-auth.loadbalancer.server.port=3001"
       - "jlam.service.name=passage-auth"
@@ -81,9 +86,12 @@ services:
       - "jlam.environment=development"
   
   jlam-api:
-    build: ./api
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
     container_name: jlam-dev-api
     restart: unless-stopped
+    command: ["npm", "run", "dev"]  # Override CMD for hot reloading
     environment:
       NODE_ENV: development
       PORT: 3000
@@ -105,6 +113,10 @@ services:
       start_period: 15s
     depends_on:
       - passage-auth
+    volumes:
+      - ./api/src:/app/src:ro  # Mount for hot reloading
+      - ./api/package.json:/app/package.json:ro  # Package dependency tracking
+      - ./api/tsconfig.json:/app/tsconfig.json:ro  # TypeScript config
     labels:
       - "traefik.enable=true"
       
@@ -123,24 +135,33 @@ services:
       - "jlam.environment=development"
 
   jlam-landing:
-    build: ./landing
+    build:
+      context: ./landing
+      dockerfile: Dockerfile.dev
     container_name: jlam-dev-landing
     restart: unless-stopped
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]  # Vite dev server
     environment:
       NODE_ENV: development
       PORT: 80
+      VITE_AUTH_SERVICE_URL: http://passage-auth:3001
+      REACT_APP_PASSAGE_APP_ID: ${PASSAGE_APP_ID:-HQ73ngumd21panzhrahe0k6o}
+      REACT_APP_ENVIRONMENT: development
     networks:
       - jlam-dev-network
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:80/health', res => res.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 15s
+      retries: 5
+      start_period: 30s
     depends_on:
       - passage-auth
     volumes:
-      - ./landing/src:/app/src:ro  # Mount for development
+      - ./landing/src:/app/src:ro  # Mount for hot reloading
+      - ./landing/package.json:/app/package.json:ro  # Package dependency tracking
+      - ./landing/vite.config.ts:/app/vite.config.ts:ro  # Vite config
+      - ./landing/tsconfig.node.json:/app/tsconfig.node.json:ro  # TypeScript config
     labels:
       - "traefik.enable=true"
       
