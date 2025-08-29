@@ -6,16 +6,16 @@
 
 # Terraform configuration moved to versions.tf
 
-# Universal SSL Certificate Module
-module "ssl_certificates" {
-  source = "./modules/jlam-ssl"
-
-  environment     = "development"
-  ssl_certificate = var.ssl_certificate
-  ssl_private_key = var.ssl_private_key
-  ssl_ca_bundle   = var.ssl_ca_bundle
-  ssl_directory   = "/tmp/jlam-ssl"
-}
+# Universal SSL Certificate Module - DISABLED FOR SIMPLE SETUP
+# module "ssl_certificates" {
+#   source = "./modules/jlam-ssl"
+#
+#   environment     = "development"
+#   ssl_certificate = var.ssl_certificate
+#   ssl_private_key = var.ssl_private_key
+#   ssl_ca_bundle   = var.ssl_ca_bundle
+#   ssl_directory   = "/tmp/jlam-ssl"
+# }
 
 # Provider Configuration
 provider "scaleway" {
@@ -39,7 +39,7 @@ resource "scaleway_instance_ip" "dev_ip" {
 }
 
 resource "scaleway_instance_server" "dev_server" {
-  name  = "jlam-dev-server-fixed"
+  name  = "jlam-dev-working"
   type  = "DEV1-S"
   image = "ubuntu_jammy"
 
