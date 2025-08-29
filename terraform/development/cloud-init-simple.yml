@@ -1,0 +1,55 @@
+---
+#cloud-config
+# JLAM Simple Docker Setup - No SSH, No Bullshit
+packages:
+  - docker.io
+  - docker-compose-v2
+  - curl
+
+write_files:
+  - path: /opt/jlam/docker-compose.yml
+    content: |
+      version: '3.8'
+      services:
+        traefik:
+          image: traefik:v3.0
+          container_name: jlam-dev-traefik
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+            - "8080:8080"
+          command:
+            - "--api=true"
+            - "--api.dashboard=true"
+            - "--api.insecure=true"
+            - "--providers.docker=true"
+            - "--entrypoints.web.address=:80"
+            - "--entrypoints.websecure.address=:443"
+            - "--ping=true"
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+          networks:
+            - jlam-network
+          labels:
+            - "traefik.enable=true"
+
+      networks:
+        jlam-network:
+          driver: bridge
+    permissions: '0644'
+    owner: root:root
+
+runcmd:
+  - echo "=== JLAM DOCKER SETUP START ===" > /var/log/jlam-setup.log
+  - systemctl enable docker 2>&1 | tee -a /var/log/jlam-setup.log
+  - systemctl start docker 2>&1 | tee -a /var/log/jlam-setup.log
+  - mkdir -p /opt/jlam
+  - cd /opt/jlam
+  - docker compose up -d 2>&1 | tee -a /var/log/jlam-setup.log
+  - sleep 10
+  - docker ps 2>&1 | tee -a /var/log/jlam-setup.log
+  - >-
+    curl -f http://localhost:8080/ping 2>&1 | tee -a /var/log/jlam-setup.log ||
+    echo "Traefik not ready yet" | tee -a /var/log/jlam-setup.log
+  - echo "=== JLAM DOCKER SETUP COMPLETE ===" >> /var/log/jlam-setup.log
