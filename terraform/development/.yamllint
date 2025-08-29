@@ -1,0 +1,50 @@
+---
+# JLAM Medical-Grade YAML Linting Configuration
+# ISO 13485 + NEN 7510 Compliance Standards
+
+extends: default
+
+rules:
+  # Medical-grade line length compliance
+  line-length:
+    max: 80
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # Allow template comments without starting space
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: false
+
+  # Document structure for audit compliance
+  document-start:
+    present: true
+
+  # Indentation standards
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Trailing spaces not allowed in medical-grade files
+  trailing-spaces: enable
+
+  # EOF newline required for file integrity
+  new-line-at-end-of-file: enable
+
+  # Allow empty lines for readability
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+
+ignore: |
+  # Ignore original non-compliant files during migration
+  cloud-init-universal.yml
+
+  # Template files have special syntax requirements
+  *.tpl
+
+  # GitHub workflows have different requirements
+  .github/
+

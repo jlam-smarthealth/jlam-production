@@ -4,7 +4,15 @@
 # Created: 2025-08-28
 # SSL: Universal SSL module with enterprise *.jlam.nl certificate
 
-# Terraform configuration moved to versions.tf
+# Terraform and Provider Configuration
+terraform {
+  required_providers {
+    scaleway = {
+      source  = "scaleway/scaleway"
+      version = "~> 2.0"
+    }
+  }
+}
 
 # Universal SSL Certificate Module - DISABLED FOR SIMPLE SETUP
 # module "ssl_certificates" {
@@ -16,6 +24,19 @@
 #   ssl_ca_bundle   = var.ssl_ca_bundle
 #   ssl_directory   = "/tmp/jlam-ssl"
 # }
+
+# Variables
+variable "scaleway_zone" {
+  description = "Scaleway zone"
+  type        = string
+  default     = "nl-ams-1"
+}
+
+variable "scaleway_region" {
+  description = "Scaleway region"  
+  type        = string
+  default     = "nl-ams"
+}
 
 # Provider Configuration
 provider "scaleway" {
