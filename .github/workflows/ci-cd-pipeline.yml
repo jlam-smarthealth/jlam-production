@@ -1,0 +1,349 @@
+name: JLAM Enterprise CI/CD Pipeline
+# Complete GitOps workflow for JLAM platform
+# Triggers on: push to main, pull requests, manual dispatch
+# Environments: Development → Staging → Production
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.github/**'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ================================
+  # QUALITY GATES
+  # ================================
+  quality-checks:
+    name: Quality & Security Checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: |
+          api/package-lock.json
+          landing/package-lock.json
+          passage-auth-service/package-lock.json
+    
+    - name: Install API dependencies
+      run: cd api && npm ci
+      
+    - name: Install Landing dependencies  
+      run: cd landing && npm ci
+      
+    - name: Install Auth Service dependencies
+      run: cd passage-auth-service && npm ci
+    
+    - name: Lint API code
+      run: cd api && npm run lint
+      continue-on-error: false
+      
+    - name: Lint Landing code
+      run: cd landing && npm run lint
+      continue-on-error: false
+      
+    - name: Type check API
+      run: cd api && npm run typecheck
+      continue-on-error: false
+      
+    - name: Type check Landing
+      run: cd landing && npm run build
+      continue-on-error: false
+    
+    - name: Run API tests
+      run: cd api && npm test
+      env:
+        NODE_ENV: test
+        
+    - name: Run Landing tests
+      run: cd landing && npm test -- --watchAll=false
+      
+    - name: Security audit API
+      run: cd api && npm audit --audit-level=high
+      
+    - name: Security audit Landing
+      run: cd landing && npm audit --audit-level=high
+    
+    - name: Generate version
+      id: version
+      run: echo "version=$(date +%Y%m%d)-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+
+  # ================================
+  # DOCKER IMAGE BUILDS
+  # ================================
+  build-images:
+    name: Build & Push Docker Images
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        service: [api, landing, passage-auth-service]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=raw,value=${{ needs.quality-checks.outputs.version }}
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.service }}
+        file: ./${{ matrix.service }}/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ================================
+  # TERRAFORM CLOUD TRIGGER
+  # ================================
+  terraform-plan:
+    name: Terraform Cloud Plan
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ~1.5.0
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+        
+    - name: Terraform Init
+      run: terraform init
+      working-directory: terraform/development
+      
+    - name: Terraform Plan (via Terraform Cloud)
+      run: terraform plan -no-color
+      working-directory: terraform/development
+      # Note: All secrets are managed via Terraform Cloud variables
+      # TF_VAR_* variables are set in Terraform Cloud workspace
+
+  # ================================
+  # DEVELOPMENT DEPLOYMENT
+  # ================================
+  deploy-development:
+    name: Deploy to Development
+    needs: [quality-checks, build-images, terraform-plan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'development'
+    environment: development
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ~1.5.0
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+        
+    - name: Deploy Infrastructure (via Terraform Cloud)
+      run: |
+        terraform init
+        terraform apply -auto-approve
+      working-directory: terraform/development
+      # Note: All secrets are managed via Terraform Cloud variables
+      # SSL certificates, Scaleway credentials, SSH keys are in TF Cloud workspace
+        
+    - name: Get server IP
+      id: server-ip
+      run: echo "ip=$(terraform output -raw dev_server_ip)" >> $GITHUB_OUTPUT
+      working-directory: terraform/development
+      
+    - name: Wait for server readiness
+      run: |
+        for i in {1..30}; do
+          if ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no jlam@${{ steps.server-ip.outputs.ip }} exit 2>/dev/null; then
+            echo "Server ready!"
+            break
+          fi
+          echo "Waiting for server... ($i/30)"
+          sleep 20
+        done
+        
+    - name: Deploy application
+      run: |
+        # Copy docker-compose to server
+        scp -o StrictHostKeyChecking=no docker-compose.dev.yml jlam@${{ steps.server-ip.outputs.ip }}:/opt/jlam/
+        
+        # Deploy services
+        ssh -o StrictHostKeyChecking=no jlam@${{ steps.server-ip.outputs.ip }} << 'EOF'
+          cd /opt/jlam
+          docker-compose -f docker-compose.dev.yml pull
+          docker-compose -f docker-compose.dev.yml up -d
+          docker system prune -f
+        EOF
+      env:
+        DEV_SERVER_IP: ${{ steps.server-ip.outputs.ip }}
+    
+    - name: Health check
+      run: |
+        sleep 30
+        curl -f http://${{ steps.server-ip.outputs.ip }}/health || exit 1
+        echo "✅ Development deployment successful!"
+
+  # ================================
+  # STAGING DEPLOYMENT
+  # ================================
+  deploy-staging:
+    name: Deploy to Staging
+    needs: deploy-development
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to Staging Server
+      run: |
+        # Deploy to existing staging server
+        ssh -o StrictHostKeyChecking=no root@51.158.164.55 << 'EOF'
+          cd /root
+          
+          # Pull latest images
+          docker-compose -f docker-compose.api-staging.yml pull
+          
+          # Rolling deployment
+          docker-compose -f docker-compose.api-staging.yml up -d --no-deps jlam-api
+          sleep 10
+          docker-compose -f docker-compose.api-staging.yml up -d --no-deps jlam-landing
+          
+          # Cleanup
+          docker system prune -f
+        EOF
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    
+    - name: Health check staging
+      run: |
+        sleep 30
+        curl -f https://jlam.nl/health || exit 1
+        echo "✅ Staging deployment successful!"
+
+  # ================================
+  # PRODUCTION DEPLOYMENT
+  # ================================
+  deploy-production:
+    name: Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.event.inputs.environment == 'production'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to Production Server
+      run: |
+        # Deploy to production server
+        ssh -o StrictHostKeyChecking=no root@51.158.190.109 << 'EOF'
+          cd /root
+          
+          # Create backup before deployment
+          docker-compose -f docker-compose.production.yml exec -T postgres pg_dump -U jlam jlam > backup-$(date +%Y%m%d-%H%M%S).sql
+          
+          # Pull latest images
+          docker-compose -f docker-compose.production.yml pull
+          
+          # Blue-green deployment
+          docker-compose -f docker-compose.production.yml up -d --no-deps jlam-api-blue
+          sleep 15
+          
+          # Health check blue deployment
+          curl -f http://localhost:3001/health
+          
+          # Switch traffic
+          docker-compose -f docker-compose.production.yml up -d --no-deps traefik
+          
+          # Stop old version
+          docker-compose -f docker-compose.production.yml stop jlam-api-green
+          
+          # Cleanup
+          docker system prune -f
+        EOF
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    
+    - name: Health check production
+      run: |
+        sleep 30
+        curl -f https://app.jlam.nl/health || exit 1
+        echo "✅ Production deployment successful!"
+
+  # ================================
+  # NOTIFICATION
+  # ================================
+  notify:
+    name: Deployment Notification
+    needs: [deploy-development, deploy-staging, deploy-production]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "🎉 Deployment pipeline completed successfully!"
+        else
+          echo "❌ Deployment pipeline failed!"
+        fi
+        
+        # Future: Send to Slack/Discord/Email
+        # curl -X POST -H 'Content-type: application/json' \
+        #   --data '{"text":"JLAM Deployment Status: ${{ job.status }}"}' \
+        #   ${{ secrets.SLACK_WEBHOOK_URL }}

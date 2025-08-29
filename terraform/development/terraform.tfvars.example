@@ -1,0 +1,53 @@
+# JLAM Development Infrastructure Variables - EXAMPLE FILE
+# Copy to terraform.tfvars and fill with actual values  
+# NEVER commit terraform.tfvars to git!
+
+# ⚠️  IMPORTANT: ALL SECRETS MUST BE IN TERRAFORM CLOUD VARIABLES
+# This example shows the format, but secrets should NEVER be in local files
+
+# Scaleway Credentials - MUST BE IN TERRAFORM CLOUD AS TF_VAR_ VARIABLES
+# scaleway_access_key = "SCWXXXXXXXXXXXXXXXXXX"  # Set as TF_VAR_scaleway_access_key in Terraform Cloud
+# scaleway_secret_key = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # Set as TF_VAR_scaleway_secret_key in Terraform Cloud
+# scaleway_project_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # Set as TF_VAR_scaleway_project_id in Terraform Cloud
+
+# Server Location (non-sensitive, can stay in local file)
+scaleway_zone   = "nl-ams-1"  # Amsterdam Zone 1
+scaleway_region = "nl-ams"    # Amsterdam Region
+
+# SSH Public Key (non-sensitive, can stay in local file)
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx your-email@example.com"
+
+# SSL Certificates - MUST BE IN TERRAFORM CLOUD AS TF_VAR_ VARIABLES
+# ssl_certificate = <<-EOT
+# -----BEGIN CERTIFICATE-----
+# [Your actual *.jlam.nl SSL certificate content]
+# -----END CERTIFICATE-----
+# EOT
+# 
+# ssl_private_key = <<-EOT  
+# -----BEGIN PRIVATE KEY-----
+# [Your actual SSL private key content]
+# -----END PRIVATE KEY-----
+# EOT
+#
+# ssl_ca_bundle = <<-EOT
+# -----BEGIN CERTIFICATE-----
+# [Your actual CA bundle/chain content]
+# -----END CERTIFICATE-----
+# EOT
+
+# =====================================
+# TERRAFORM CLOUD SETUP REQUIRED:
+# =====================================
+# 1. Login to app.terraform.io
+# 2. Go to your JLAM workspace
+# 3. Navigate to Variables tab
+# 4. Add these Environment Variables (ALL marked as sensitive):
+#    - TF_VAR_scaleway_access_key
+#    - TF_VAR_scaleway_secret_key  
+#    - TF_VAR_scaleway_project_id
+#    - TF_VAR_ssl_certificate
+#    - TF_VAR_ssl_private_key
+#    - TF_VAR_ssl_ca_bundle
+# 
+# See TERRAFORM-CLOUD-SECRETS-GUIDE.md for complete instructions
